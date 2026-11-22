@@ -9,7 +9,7 @@ from app.core.security import CurrentUser
 from app.models.schemas import ExtractedFields, ImageUrls, OcrScanResponse, expiration_from
 from app.services.ocr.gemini_engine import extract_structured
 from app.services.ocr.tesseract_engine import extract_text
-from app.services.storage import upload_user_image
+from app.services.storage import _normalize_mime, remove_objects, upload_user_image
 
 MAX_BYTES = 8 * 1024 * 1024
 
@@ -84,6 +84,11 @@ async def upload_warranty_images(
     receipt_bytes, receipt_mime, receipt_name = receipt_tuple
     serial_tuple = await _read_upload(serial)
 
+    # Validate MIME types up front so an invalid serial photo never leaves an orphaned receipt
+    _normalize_mime(receipt_mime, receipt_name)
+    if serial_tuple:
+        _normalize_mime(serial_tuple[1], serial_tuple[2])
+
     receipt_path, receipt_url = await asyncio.to_thread(
         upload_user_image,
         user,
@@ -96,15 +101,24 @@ async def upload_warranty_images(
     serial_path = serial_url = None
     if serial_tuple:
         serial_bytes, serial_mime, serial_name = serial_tuple
-        serial_path, serial_url = await asyncio.to_thread(
-            upload_user_image,
-            user,
-            settings.supabase_serials_bucket,
-            "serials",
-            serial_bytes,
-            serial_mime,
-            serial_name,
-        )
+        try:
+            serial_path, serial_url = await asyncio.to_thread(
+                upload_user_image,
+                user,
+                settings.supabase_serials_bucket,
+                "serials",
+                serial_bytes,
+                serial_mime,
+                serial_name,
+            )
+        except Exception:
+            await asyncio.to_thread(
+                remove_objects,
+                user,
+                settings.supabase_receipts_bucket,
+                [receipt_path],
+            )
+            raise
 
     return ImageUrls(
         receipt_url=receipt_url,
@@ -125,6 +139,11 @@ async def run_scan(
     receipt_bytes, receipt_mime, receipt_name = receipt_tuple
     serial_tuple = await _read_upload(serial)
 
+    # Pre-validate both files before uploading either
+    _normalize_mime(receipt_mime, receipt_name)
+    if serial_tuple:
+        _normalize_mime(serial_tuple[1], serial_tuple[2])
+
     receipt_path, receipt_url = await asyncio.to_thread(
         upload_user_image,
         user,
@@ -138,15 +157,24 @@ async def run_scan(
     serial_bytes = serial_mime = None
     if serial_tuple:
         serial_bytes, serial_mime, serial_name = serial_tuple
-        serial_path, serial_url = await asyncio.to_thread(
-            upload_user_image,
-            user,
-            settings.supabase_serials_bucket,
-            "serials",
-            serial_bytes,
-            serial_mime,
-            serial_name,
-        )
+        try:
+            serial_path, serial_url = await asyncio.to_thread(
+                upload_user_image,
+                user,
+                settings.supabase_serials_bucket,
+                "serials",
+                serial_bytes,
+                serial_mime,
+                serial_name,
+            )
+        except Exception:
+            await asyncio.to_thread(
+                remove_objects,
+                user,
+                settings.supabase_receipts_bucket,
+                [receipt_path],
+            )
+            raise
 
     images = ImageUrls(
         receipt_url=receipt_url,

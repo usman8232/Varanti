@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Literal
 
 from dateutil.relativedelta import relativedelta
-from pydantic import AliasChoices, BaseModel, Field, computed_field
+from pydantic import AliasChoices, BaseModel, Field, computed_field, field_validator
 
 WarrantyCategory = Literal[
     "Consumer Tech",
@@ -57,20 +57,28 @@ class OcrScanResponse(BaseModel):
 
 
 class WarrantyCreate(BaseModel):
-    item_name: str
+    item_name: str = Field(min_length=1)
     merchant_name: str | None = None
     category: WarrantyCategory = "Consumer Tech"
     purchase_date: date
     warranty_duration_months: int = Field(default=12, ge=1, le=600)
     warranty_expiration_date: date | None = None
     serial_number: str | None = None
-    price_paid: float | None = None
+    price_paid: float | None = Field(default=None, ge=0)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     receipt_image_url: str
     receipt_image_path: str | None = None
     serial_image_url: str | None = None
     serial_image_path: str | None = None
     notes: str | None = None
+
+    @field_validator("item_name")
+    @classmethod
+    def _strip_item_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Item name cannot be blank")
+        return cleaned
 
 
 class WarrantyUpdate(BaseModel):
@@ -81,9 +89,19 @@ class WarrantyUpdate(BaseModel):
     warranty_duration_months: int | None = Field(default=None, ge=1, le=600)
     warranty_expiration_date: date | None = None
     serial_number: str | None = None
-    price_paid: float | None = None
+    price_paid: float | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     notes: str | None = None
+
+    @field_validator("item_name")
+    @classmethod
+    def _strip_optional_item_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Item name cannot be blank")
+        return cleaned
 
 
 class WarrantyOut(BaseModel):

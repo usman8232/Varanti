@@ -28,6 +28,7 @@ void main() async {
   } catch (_) {}
 
   final notificationSettings = await NotificationSettings.load();
+  final savedThemeMode = await loadSavedThemeMode();
   await NotificationService.instance.init();
 
   runApp(
@@ -35,6 +36,7 @@ void main() async {
       overrides: [
         initialGuestProvider.overrideWithValue(isGuest),
         initialNotificationSettingsProvider.overrideWithValue(notificationSettings),
+        initialThemeModeProvider.overrideWithValue(savedThemeMode),
       ],
       child: const VarantiApp(),
     ),
@@ -47,13 +49,14 @@ class VarantiApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
       title: AppConfig.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       home: (authState.isAuthenticated || authState.isGuest)
           ? const DashboardScreen()
           : const LoginScreen(),

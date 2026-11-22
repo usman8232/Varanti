@@ -19,6 +19,21 @@ class WarrantyRepository {
     return value.startsWith('http://') || value.startsWith('https://');
   }
 
+  static Future<void> _deleteManagedLocalFile(String? path) async {
+    if (path == null || path.isEmpty || _isRemoteUrl(path)) return;
+    // Only delete copies stored inside Varanti's managed local receipts folder
+    // so we never remove original photos in the user's shared gallery.
+    if (!path.contains('varanti_receipts')) return;
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('Failed to delete local receipt file $path: $e');
+    }
+  }
+
   Future<List<WarrantyModel>> getWarranties({String? query, String? category}) async {
     if (isGuest) {
       return await AppDatabase.instance.getWarranties(query: query, category: category);
@@ -87,7 +102,12 @@ class WarrantyRepository {
 
   Future<void> deleteWarranty(String id) async {
     if (isGuest) {
+      final existing = await AppDatabase.instance.getWarrantyById(id);
       await AppDatabase.instance.deleteWarranty(id);
+      if (existing != null) {
+        await _deleteManagedLocalFile(existing.receiptImageUrl);
+        await _deleteManagedLocalFile(existing.serialImageUrl);
+      }
     } else {
       if (apiClient == null) throw const ApiException('Please sign in to delete warranties.');
       await apiClient!.deleteWarranty(id);
@@ -126,6 +146,8 @@ class WarrantyRepository {
         }
         await apiClient!.createWarranty(cloudItem);
         await AppDatabase.instance.deleteWarranty(item.id);
+        await _deleteManagedLocalFile(item.receiptImageUrl);
+        await _deleteManagedLocalFile(item.serialImageUrl);
         migratedCount++;
       } catch (e) {
         debugPrint('Failed to migrate guest warranty ${item.id}: $e');

@@ -74,13 +74,13 @@ class AppDatabase {
     if (query != null && query.trim().isNotEmpty) {
       final search = '%${query.trim().toLowerCase()}%';
       final searchCondition =
-          '(LOWER(item_name) LIKE ? OR LOWER(merchant_name) LIKE ? OR LOWER(serial_number) LIKE ?)';
+          '(LOWER(item_name) LIKE ? OR LOWER(merchant_name) LIKE ? OR LOWER(serial_number) LIKE ? OR LOWER(notes) LIKE ?)';
       if (whereClause.isNotEmpty) {
         whereClause += ' AND $searchCondition';
       } else {
         whereClause = searchCondition;
       }
-      whereArgs.addAll([search, search, search]);
+      whereArgs.addAll([search, search, search, search]);
     }
 
     final result = await db.query(

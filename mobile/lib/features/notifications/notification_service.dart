@@ -217,17 +217,22 @@ class NotificationService {
     }
   }
 
+  /// Resolves a timezone [tz.Location] matching [offset].
+  /// Exposed for unit testing so local timezone resolution stays verified.
+  static tz.Location resolveLocationForOffset(Duration offset) {
+    final locations = tz.timeZoneDatabase.locations.values;
+    for (final loc in locations) {
+      if (loc.currentTimeZone.offset == offset) {
+        return loc;
+      }
+    }
+    return tz.UTC;
+  }
+
   void _configureLocalTimezone() {
     try {
       final offset = DateTime.now().timeZoneOffset;
-      final locations = tz.timeZoneDatabase.locations.values;
-      for (final loc in locations) {
-        if (loc.currentTimeZone.offset == offset) {
-          tz.setLocalLocation(loc);
-          return;
-        }
-      }
-      tz.setLocalLocation(tz.UTC);
+      tz.setLocalLocation(resolveLocationForOffset(offset));
     } catch (_) {
       tz.setLocalLocation(tz.UTC);
     }
@@ -274,6 +279,15 @@ class NotificationService {
           presentSound: true,
         ),
       );
+
+  Future<void> cancelAll() async {
+    if (!_initialized || !_supportsScheduledNotifications) return;
+    try {
+      await _plugin.cancelAll();
+    } catch (e) {
+      debugPrint('Failed to cancel all notifications: $e');
+    }
+  }
 
   Future<void> cancelForWarranty(String warrantyId) async {
     if (!_initialized || !_supportsScheduledNotifications) return;

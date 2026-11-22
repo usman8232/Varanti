@@ -80,3 +80,29 @@ def test_delete_warranty_authenticated():
             headers={"Authorization": "Bearer fake.jwt.token"},
         )
         assert response.status_code == 204
+
+
+def test_create_warranty_rejects_blank_name_and_negative_price():
+    with patch("app.core.security.decode_supabase_jwt", return_value={"sub": "user-123-uuid"}):
+        blank_resp = client.post(
+            "/v1/warranties",
+            json={
+                "item_name": "   ",
+                "purchase_date": "2026-01-15",
+                "receipt_image_url": "https://example.com/receipt.jpg",
+            },
+            headers={"Authorization": "Bearer fake.jwt.token"},
+        )
+        assert blank_resp.status_code == 422
+
+        neg_resp = client.post(
+            "/v1/warranties",
+            json={
+                "item_name": "Laptop",
+                "purchase_date": "2026-01-15",
+                "price_paid": -10,
+                "receipt_image_url": "https://example.com/receipt.jpg",
+            },
+            headers={"Authorization": "Bearer fake.jwt.token"},
+        )
+        assert neg_resp.status_code == 422

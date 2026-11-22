@@ -173,6 +173,7 @@ def list_warranties(
             if needle in (r.get("item_name") or "").lower()
             or needle in (r.get("merchant_name") or "").lower()
             or needle in (r.get("serial_number") or "").lower()
+            or needle in (r.get("notes") or "").lower()
         ]
     return [row_to_out(r, user=user, client=client) for r in rows]
 
@@ -186,6 +187,13 @@ def update_warranty(user: CurrentUser, warranty_id: str, body: WarrantyUpdate) -
     patch = body.model_dump(exclude_unset=True)
     if not patch:
         return row_to_out(existing, user=user)
+    non_nullable = ("item_name", "purchase_date", "warranty_duration_months", "warranty_expiration_date", "category", "currency")
+    for field_name in non_nullable:
+        if field_name in patch and patch[field_name] is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{field_name} cannot be null",
+            )
     purchase = patch.get("purchase_date") or _parse_date(existing["purchase_date"])
     months = patch.get("warranty_duration_months") or int(existing["warranty_duration_months"])
     if "purchase_date" in patch or "warranty_duration_months" in patch:

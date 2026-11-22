@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_messages.dart';
+import '../../core/widgets/varanti_brand.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -42,8 +43,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             SnackBar(
               content: Text(
                 signedInImmediately
-                    ? 'Account created successfully!'
-                    : 'Account created! Please check your email to verify your account before signing in.',
+                    ? 'Account created. Welcome to Varanti.'
+                    : 'Account created. Check your inbox to confirm your email before signing in.',
               ),
             ),
           );
@@ -65,15 +66,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  void _setMode(bool signUp) {
+    if (_isSignUp == signUp) return;
+    setState(() {
+      _isSignUp = signUp;
+      _errorMessage = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final crimson = AppTheme.crimsonOf(context);
+    final hairline = AppTheme.hairlineOf(context);
+    final subtle = AppTheme.subtleSurfaceOf(context);
+    final muted = AppTheme.mutedTextOf(context);
 
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: AutofillGroup(
@@ -83,169 +97,319 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Brand Logo / Icon
+                      // Minimal Brand Header
                       Center(
                         child: Container(
-                          padding: const EdgeInsets.all(18),
+                          width: 76,
+                          height: 76,
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppTheme.primary.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
+                            color: Theme.of(context).colorScheme.surface,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(color: hairline),
                           ),
-                          child: const Icon(
-                            Icons.receipt_long_rounded,
-                            size: 54,
-                            color: AppTheme.primary,
-                          ),
+                          child: const VarantiMark(size: 44),
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Varanti',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Smart Receipt & Warranty Tracker\n100% Free • Unlimited • No Paywalls',
+                      const SizedBox(height: 18),
+                      const Center(child: VarantiWordmark(height: 26)),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Smart Receipt & Warranty Tracker',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14,
-                          color: Color(0xFF64748B),
-                          height: 1.4,
+                          fontWeight: FontWeight.w500,
+                          color: muted,
                         ),
                       ),
-                      const SizedBox(height: 36),
-
-                      if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.red.shade200),
-                          ),
-                          child: Text(
-                            _errorMessage!,
-                            style: TextStyle(color: Colors.red.shade800, fontSize: 13),
-                          ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '100% Free | Unlimited | No Paywalls',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          letterSpacing: 0.4,
+                          color: muted.withValues(alpha: 0.85),
                         ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // Email Field
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.email],
-                        decoration: const InputDecoration(
-                          labelText: 'Email Address',
-                          prefixIcon: Icon(Icons.email_outlined),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) return 'Enter your email';
-                          if (!val.contains('@')) return 'Enter a valid email';
-                          return null;
-                        },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 28),
 
-                      // Password Field
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        textInputAction: TextInputAction.done,
-                        autofillHints: [_isSignUp ? AutofillHints.newPassword : AutofillHints.password],
-                        onFieldSubmitted: (_) => _submit(),
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock_outline_rounded),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                              color: const Color(0xFF94A3B8),
+                      // Minimal Hairline Card
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: hairline),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Segmented Pill Mode Switcher
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: subtle,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: _ModePill(
+                                      label: 'Sign In',
+                                      icon: Icons.login_rounded,
+                                      selected: !_isSignUp,
+                                      onTap: () => _setMode(false),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: _ModePill(
+                                      label: 'Create Account',
+                                      icon: Icons.person_add_alt_1_rounded,
+                                      selected: _isSignUp,
+                                      onTap: () => _setMode(true),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                          ),
+                            const SizedBox(height: 20),
+
+                            if (_errorMessage != null) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppTheme.brandCrimsonSoftDark
+                                      : AppTheme.brandCrimsonSoftLight,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: crimson.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline_rounded,
+                                      size: 18,
+                                      color: crimson,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        _errorMessage!,
+                                        style: TextStyle(
+                                          color: crimson,
+                                          fontSize: 13,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
+                            // Email Field
+                            TextFormField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.email],
+                              decoration: const InputDecoration(
+                                labelText: 'Email Address',
+                                prefixIcon: Icon(Icons.mail_outline_rounded),
+                              ),
+                              validator: (val) {
+                                if (val == null || val.trim().isEmpty) {
+                                  return 'Enter your email';
+                                }
+                                if (!val.contains('@')) {
+                                  return 'Enter a valid email';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 14),
+
+                            // Password Field
+                            TextFormField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              textInputAction: TextInputAction.done,
+                              autofillHints: [
+                                _isSignUp
+                                    ? AutofillHints.newPassword
+                                    : AutofillHints.password,
+                              ],
+                              onFieldSubmitted: (_) => _submit(),
+                              decoration: InputDecoration(
+                                labelText: 'Password',
+                                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                                suffixIcon: IconButton(
+                                  tooltip: _obscurePassword
+                                      ? 'Show password'
+                                      : 'Hide password',
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: muted,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  ),
+                                ),
+                              ),
+                              validator: (val) {
+                                if (val == null || val.trim().isEmpty) {
+                                  return 'Enter your password';
+                                }
+                                if (val.length < 6) {
+                                  return 'Password must be at least 6 characters';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Primary Pill Submit Button
+                            ElevatedButton.icon(
+                              icon: authState.isLoading
+                                  ? SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onPrimary,
+                                      ),
+                                    )
+                                  : Icon(
+                                      _isSignUp
+                                          ? Icons.person_add_alt_1_rounded
+                                          : Icons.arrow_forward_rounded,
+                                      size: 18,
+                                    ),
+                              label: Text(
+                                authState.isLoading
+                                    ? (_isSignUp
+                                        ? 'Creating Account...'
+                                        : 'Signing In...')
+                                    : (_isSignUp ? 'Create Account' : 'Sign In'),
+                              ),
+                              onPressed: authState.isLoading ? null : _submit,
+                            ),
+                          ],
                         ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) return 'Enter your password';
-                          if (val.length < 6) return 'Password must be at least 6 characters';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Sign In / Sign Up Button
-                      ElevatedButton(
-                        onPressed: authState.isLoading ? null : _submit,
-                        child: authState.isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : Text(_isSignUp ? 'Create Account' : 'Sign In'),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Toggle Sign Up / Sign In
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _isSignUp = !_isSignUp;
-                          _errorMessage = null;
-                        }),
-                        child: Text(
-                          _isSignUp
-                              ? 'Already have an account? Sign In'
-                              : "Don't have an account? Create one",
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
                       ),
 
-                      const SizedBox(height: 20),
-                      const Row(
+                      const SizedBox(height: 22),
+                      Row(
                         children: [
-                          Expanded(child: Divider()),
+                          Expanded(child: Divider(color: hairline)),
                           Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Text('OR', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            child: Text(
+                              'OR',
+                              style: TextStyle(
+                                color: muted,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.4,
+                              ),
+                            ),
                           ),
-                          Expanded(child: Divider()),
+                          Expanded(child: Divider(color: hairline)),
                         ],
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 18),
 
-                      // Guest Mode Button (FR-AUTH-02)
+                      // Guest Mode Pill CTA (SRS FR-AUTH-02)
                       OutlinedButton.icon(
-                        icon: const Icon(Icons.person_outline_rounded),
-                        label: const Text('Continue as Guest (Offline Mode)'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          side: const BorderSide(color: Color(0xFFCBD5E1)),
-                        ),
+                        icon: const Icon(Icons.person_outline_rounded, size: 19),
+                        label: const Text('Continue as Guest'),
                         onPressed: () {
                           ref.read(authProvider.notifier).enterGuestMode();
                         },
                       ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Guest mode stores data locally on your device in SQLite without cloud sync.',
+                      const SizedBox(height: 10),
+                      Text(
+                        'Save receipts privately on this device. Sign in anytime to back them up.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                        style: TextStyle(fontSize: 12, color: muted, height: 1.4),
                       ),
                     ],
                   ),
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModePill extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ModePill({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final muted = AppTheme.mutedTextOf(context);
+    final hairline = AppTheme.hairlineOf(context);
+
+    return Material(
+      color: selected ? surface : Colors.transparent,
+      shape: StadiumBorder(
+        side: selected ? BorderSide(color: hairline) : BorderSide.none,
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? onSurface : muted,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected ? onSurface : muted,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

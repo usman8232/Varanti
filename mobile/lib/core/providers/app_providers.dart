@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../network/api_client.dart';
 import '../utils/error_messages.dart';
@@ -7,9 +9,50 @@ import '../../data/models/warranty_model.dart';
 import '../../data/repositories/warranty_repository.dart';
 import '../../features/notifications/notification_service.dart';
 
-// --- STORAGE & GUEST PREFERENCES ---
+// --- STORAGE & PREFERENCES ---
 const String _guestStorageKey = 'varanti_guest_mode_enabled';
+const String _themeModeStorageKey = 'varanti_theme_mode';
 const _secureStorage = FlutterSecureStorage();
+
+Future<ThemeMode> loadSavedThemeMode() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    switch (prefs.getString(_themeModeStorageKey)) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      default:
+        return ThemeMode.system;
+    }
+  } catch (_) {
+    return ThemeMode.system;
+  }
+}
+
+final initialThemeModeProvider = Provider<ThemeMode>((ref) => ThemeMode.system);
+
+class ThemeModeNotifier extends Notifier<ThemeMode> {
+  @override
+  ThemeMode build() => ref.read(initialThemeModeProvider);
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    state = mode;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final value = switch (mode) {
+        ThemeMode.light => 'light',
+        ThemeMode.dark => 'dark',
+        ThemeMode.system => 'system',
+      };
+      await prefs.setString(_themeModeStorageKey, value);
+    } catch (_) {}
+  }
+}
+
+final themeModeProvider = NotifierProvider<ThemeModeNotifier, ThemeMode>(() {
+  return ThemeModeNotifier();
+});
 
 /// Provider for initial guest state loaded synchronously/pre-boot in main()
 final initialGuestProvider = Provider<bool>((ref) => false);
@@ -64,14 +107,15 @@ class AuthState {
     bool? isGuest,
     User? user,
     String? accessToken,
+    bool clearSession = false,
     bool? isLoading,
     String? errorMessage,
     bool? isMigrating,
   }) {
     return AuthState(
       isGuest: isGuest ?? this.isGuest,
-      user: user ?? this.user,
-      accessToken: accessToken ?? this.accessToken,
+      user: clearSession ? null : (user ?? this.user),
+      accessToken: clearSession ? null : (accessToken ?? this.accessToken),
       isLoading: isLoading ?? this.isLoading,
       errorMessage: errorMessage,
       isMigrating: isMigrating ?? this.isMigrating,
@@ -155,12 +199,18 @@ class AuthNotifier extends Notifier<AuthState> {
           await _secureStorage.delete(key: _guestStorageKey);
         } catch (_) {}
       }
-      state = state.copyWith(
-        user: hasSession ? res.user : null,
-        accessToken: res.session?.accessToken,
-        isGuest: false,
-        isLoading: false,
-      );
+      state = hasSession
+          ? state.copyWith(
+              user: res.user,
+              accessToken: res.session?.accessToken,
+              isGuest: false,
+              isLoading: false,
+            )
+          : state.copyWith(
+              clearSession: true,
+              isGuest: false,
+              isLoading: false,
+            );
       // Auto-migrate offline SQLite records to Supabase Cloud if signed in immediately
       if (hasSession) {
         await autoMigrateGuestWarranties();
@@ -190,9 +240,13 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   Future<void> signOut() async {
+    final wasAuthenticated = state.isAuthenticated;
     try {
       await _secureStorage.delete(key: _guestStorageKey);
     } catch (_) {}
+    if (wasAuthenticated) {
+      await NotificationService.instance.cancelAll();
+    }
     await Supabase.instance.client.auth.signOut();
     state = const AuthState(isGuest: false);
   }
@@ -207,7 +261,7 @@ final authProvider = NotifierProvider<AuthNotifier, AuthState>(() {
 final apiClientProvider = Provider<ApiClient?>((ref) {
   final authState = ref.watch(authProvider);
   if (authState.isGuest || authState.accessToken == null) {
-    return ApiClient();
+    return null;
   }
   return ApiClient(accessToken: authState.accessToken);
 });
@@ -224,21 +278,37 @@ final warrantyRepositoryProvider = Provider<WarrantyRepository>((ref) {
 
 // --- WARRANTY LIST FILTER & NOTIFIER (Riverpod 3.x) ---
 
+enum WarrantySortOrder { expiringSoonest, newest, highestValue }
+
 class WarrantyFilterState {
   final String? query;
   final String? selectedCategory;
+  final String? selectedStatus;
+  final WarrantySortOrder sortOrder;
 
-  const WarrantyFilterState({this.query, this.selectedCategory});
+  const WarrantyFilterState({
+    this.query,
+    this.selectedCategory,
+    this.selectedStatus,
+    this.sortOrder = WarrantySortOrder.expiringSoonest,
+  });
 
   WarrantyFilterState copyWith({
     String? query,
     bool clearQuery = false,
     String? selectedCategory,
     bool clearCategory = false,
+    String? selectedStatus,
+    bool clearStatus = false,
+    WarrantySortOrder? sortOrder,
   }) {
     return WarrantyFilterState(
       query: clearQuery ? null : (query ?? this.query),
-      selectedCategory: clearCategory ? null : (selectedCategory ?? this.selectedCategory),
+      selectedCategory:
+          clearCategory ? null : (selectedCategory ?? this.selectedCategory),
+      selectedStatus:
+          clearStatus ? null : (selectedStatus ?? this.selectedStatus),
+      sortOrder: sortOrder ?? this.sortOrder,
     );
   }
 }
@@ -262,18 +332,79 @@ class WarrantyFilterNotifier extends Notifier<WarrantyFilterState> {
       state = state.copyWith(selectedCategory: category);
     }
   }
+
+  void updateStatus(String? status) {
+    if (status == null || status.isEmpty) {
+      state = state.copyWith(clearStatus: true);
+    } else {
+      state = state.copyWith(selectedStatus: status);
+    }
+  }
+
+  void updateSortOrder(WarrantySortOrder order) {
+    state = state.copyWith(sortOrder: order);
+  }
+
+  void clearAll() {
+    state = const WarrantyFilterState();
+  }
 }
 
-final warrantyFilterProvider = NotifierProvider<WarrantyFilterNotifier, WarrantyFilterState>(() {
+final warrantyFilterProvider =
+    NotifierProvider<WarrantyFilterNotifier, WarrantyFilterState>(() {
   return WarrantyFilterNotifier();
 });
 
+/// Source-of-truth full warranty inventory (powers Home visual graphs,
+/// notification sync, and instant client-side Vault filtering).
 final warrantiesStreamProvider = FutureProvider<List<WarrantyModel>>((ref) async {
   final repo = ref.watch(warrantyRepositoryProvider);
+  return await repo.getWarranties();
+});
+
+/// Instant filtered & sorted view for the Vault (Search & Archive) screen.
+final filteredWarrantiesProvider =
+    Provider<AsyncValue<List<WarrantyModel>>>((ref) {
+  final allAsync = ref.watch(warrantiesStreamProvider);
   final filter = ref.watch(warrantyFilterProvider);
 
-  return await repo.getWarranties(
-    query: filter.query,
-    category: filter.selectedCategory,
-  );
+  return allAsync.whenData((items) {
+    final needle = filter.query?.trim().toLowerCase() ?? '';
+    final filtered = items.where((w) {
+      if (filter.selectedCategory != null &&
+          w.category != filter.selectedCategory) {
+        return false;
+      }
+      if (filter.selectedStatus != null && w.status != filter.selectedStatus) {
+        return false;
+      }
+      if (needle.isNotEmpty) {
+        final matchName = w.itemName.toLowerCase().contains(needle);
+        final matchMerchant =
+            (w.merchantName ?? '').toLowerCase().contains(needle);
+        final matchSerial =
+            (w.serialNumber ?? '').toLowerCase().contains(needle);
+        final matchNotes = (w.notes ?? '').toLowerCase().contains(needle);
+        if (!matchName && !matchMerchant && !matchSerial && !matchNotes) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+
+    switch (filter.sortOrder) {
+      case WarrantySortOrder.expiringSoonest:
+        filtered.sort(
+          (a, b) => a.warrantyExpirationDate.compareTo(b.warrantyExpirationDate),
+        );
+      case WarrantySortOrder.newest:
+        filtered.sort((a, b) => b.purchaseDate.compareTo(a.purchaseDate));
+      case WarrantySortOrder.highestValue:
+        filtered.sort(
+          (a, b) => (b.pricePaid ?? -1).compareTo(a.pricePaid ?? -1),
+        );
+    }
+
+    return filtered;
+  });
 });

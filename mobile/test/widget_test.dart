@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:varanti_mobile/core/providers/app_providers.dart';
 import 'package:varanti_mobile/core/utils/error_messages.dart';
 import 'package:varanti_mobile/data/models/warranty_model.dart';
@@ -103,6 +104,28 @@ void main() {
 
       notifier.updateQuery('');
       expect(container.read(warrantyFilterProvider).query, isNull);
+    });
+
+    test('Can filter by status, update sort order, and clear all filters', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(warrantyFilterProvider.notifier);
+      notifier.updateStatus('expiring_soon');
+      notifier.updateCategory('Computing');
+      notifier.updateSortOrder(WarrantySortOrder.highestValue);
+
+      final active = container.read(warrantyFilterProvider);
+      expect(active.selectedStatus, 'expiring_soon');
+      expect(active.selectedCategory, 'Computing');
+      expect(active.sortOrder, WarrantySortOrder.highestValue);
+
+      notifier.clearAll();
+      final cleared = container.read(warrantyFilterProvider);
+      expect(cleared.selectedStatus, isNull);
+      expect(cleared.selectedCategory, isNull);
+      expect(cleared.query, isNull);
+      expect(cleared.sortOrder, WarrantySortOrder.expiringSoonest);
     });
   });
 
@@ -211,6 +234,12 @@ void main() {
       expect({id30, id7, id1, other30}.length, 4);
       expect(id30, NotificationService.notificationIdFor('uuid-1', 30));
       expect(id30, greaterThan(0));
+    });
+
+    test('Resolves local timezone matching device UTC offset', () {
+      tzdata.initializeTimeZones();
+      final locPlus5 = NotificationService.resolveLocationForOffset(const Duration(hours: 5));
+      expect(locPlus5.currentTimeZone.offset, const Duration(hours: 5));
     });
   });
 

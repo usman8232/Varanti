@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
-import '../../core/config/app_config.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_messages.dart';
+import '../../core/widgets/varanti_brand.dart';
 import '../../data/models/warranty_model.dart';
 import '../notifications/notification_service.dart';
-import '../notifications/notification_settings_sheet.dart';
-import '../ocr/ocr_review_dialog.dart';
+import '../settings/settings_screen.dart';
+import '../vault/vault_screen.dart';
 import '../warranties/warranty_detail_screen.dart';
+import '../warranties/widgets/warranty_card.dart';
+import 'scan_flow.dart';
+import 'widgets/warranty_charts.dart';
 
+/// Main Navigation Shell hosting Screen 2 (Home Dashboard + Visual Graphs),
+/// Screen 3 (Vault), Center Quick-Scan Crimson CTA, and Screen 6 (Settings).
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -19,30 +23,14 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
-  final _searchController = TextEditingController();
-  final ImagePicker _picker = ImagePicker();
+  int _selectedIndex = 0;
   String? _lastSyncedSignature;
+  DateTime? _lastBackPress;
 
-  void _showNotificationSettings() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => const NotificationSettingsSheet(),
-    );
-  }
-
-  void _syncNotificationsIfUnfiltered(
+  void _syncNotifications(
     List<WarrantyModel> warranties,
-    WarrantyFilterState filter,
     NotificationSettings notifSettings,
   ) {
-    final isUnfiltered =
-        (filter.query == null || filter.query!.isEmpty) && filter.selectedCategory == null;
-    if (!isUnfiltered) return;
-
     final sig =
         '${notifSettings.enabled}:${notifSettings.activeLeadDays.join(',')}:${notifSettings.reminderHour}:${notifSettings.reminderMinute}|'
         '${warranties.map((w) => '${w.id}@${w.warrantyExpirationDate.toIso8601String()}').join(';')}';
@@ -52,608 +40,678 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     NotificationService.instance.syncAllWarranties(warranties, notifSettings);
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleCapture(ImageSource source) async {
-    try {
-      final XFile? receiptImage = await _picker.pickImage(
-        source: source,
-        imageQuality: AppConfig.imageQuality,
-        maxWidth: AppConfig.maxImageDimension,
-        maxHeight: AppConfig.maxImageDimension,
-      );
-
-      if (receiptImage == null) return;
-
-      // Ask if user wants to attach a serial number photo
-      String? serialPath;
-      if (mounted) {
-        final addSerial = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Add Serial Label Photo?'),
-            content: const Text(
-              'Do you want to snap or import an additional photo of the product barcode or serial number label?',
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Skip')),
-              ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Add Photo')),
-            ],
-          ),
-        );
-
-        if (addSerial == true && mounted) {
-          final XFile? serialImage = await _picker.pickImage(
-            source: source,
-            imageQuality: AppConfig.imageQuality,
-            maxWidth: AppConfig.maxImageDimension,
-            maxHeight: AppConfig.maxImageDimension,
-          );
-          serialPath = serialImage?.path;
-        }
-      }
-
-      final authState = ref.read(authProvider);
-      Map<String, dynamic>? ocrData;
-
-      // If authenticated, run the AI OCR pipeline via FastAPI backend
-      if (authState.isAuthenticated && mounted) {
-        // Show loading progress overlay
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => const Center(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Analyzing receipt with Gemini AI...', style: TextStyle(fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-
-        try {
-          final apiClient = ref.read(apiClientProvider);
-          ocrData = await apiClient!.scanReceipt(
-            receiptPath: receiptImage.path,
-            serialPath: serialPath,
-          );
-        } catch (e) {
-          debugPrint('OCR Scan encountered error, falling back to manual form: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  ErrorMessages.friendly(
-                    e,
-                    fallback: "Couldn't read that receipt automatically. Please enter details manually.",
-                  ),
-                ),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
-        } finally {
-          if (mounted) Navigator.of(context, rootNavigator: true).pop(); // dismiss loader
-        }
-      }
-
-      // Open review & confirmation modal dialog
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => OcrReviewDialog(
-            receiptFilePath: receiptImage.path,
-            serialFilePath: serialPath,
-            initialOcrData: ocrData,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              ErrorMessages.friendly(e, fallback: "Couldn't open that photo. Please try again."),
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+  void _openVaultWithStatus(String? statusFilter) {
+    final notifier = ref.read(warrantyFilterProvider.notifier);
+    notifier.clearAll();
+    if (statusFilter != null) {
+      notifier.updateStatus(statusFilter);
     }
+    setState(() => _selectedIndex = 1);
   }
 
-  void _showImageSourcePicker() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Add Receipt & Warranty',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded, color: AppTheme.primary),
-                title: const Text('Take Photo with Camera'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _handleCapture(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded, color: AppTheme.primary),
-                title: const Text('Choose from Photo Gallery'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _handleCapture(ImageSource.gallery);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  void _cycleThemeMode() {
+    final current = ref.read(themeModeProvider);
+    final next = switch (current) {
+      ThemeMode.system => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.light,
+      ThemeMode.light => ThemeMode.system,
+    };
+    ref.read(themeModeProvider.notifier).setThemeMode(next);
+  }
+
+  IconData _themeIconFor(ThemeMode mode) {
+    return switch (mode) {
+      ThemeMode.light => Icons.light_mode_outlined,
+      ThemeMode.dark => Icons.dark_mode_outlined,
+      ThemeMode.system => Icons.brightness_auto_outlined,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
-    final filter = ref.watch(warrantyFilterProvider);
     final notifSettings = ref.watch(notificationSettingsProvider);
     final warrantiesAsync = ref.watch(warrantiesStreamProvider);
+    final hairline = AppTheme.hairlineOf(context);
+    final crimson = AppTheme.crimsonOf(context);
 
     ref.listen<AsyncValue<List<WarrantyModel>>>(warrantiesStreamProvider, (_, next) {
-      next.whenData((list) => _syncNotificationsIfUnfiltered(list, filter, notifSettings));
+      next.whenData((list) => _syncNotifications(list, notifSettings));
     });
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            const Icon(Icons.receipt_long_rounded, color: AppTheme.primary),
-            const SizedBox(width: 8),
-            const Text('Varanti'),
-            const SizedBox(width: 10),
-            // Mode Indicator
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: authState.isGuest
-                    ? Colors.amber.shade100
-                    : Colors.blue.shade100,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                authState.isGuest ? 'Guest (Offline)' : 'Cloud Synced',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: authState.isGuest ? Colors.amber.shade900 : Colors.blue.shade900,
-                ),
-              ),
+    // Also sync if already loaded on mount
+    warrantiesAsync.whenData((list) => _syncNotifications(list, notifSettings));
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_selectedIndex != 0) {
+          setState(() => _selectedIndex = 0);
+          return;
+        }
+        final now = DateTime.now();
+        if (_lastBackPress == null ||
+            now.difference(_lastBackPress!) > const Duration(seconds: 2)) {
+          _lastBackPress = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Press back again to exit Varanti'),
+              duration: Duration(seconds: 2),
             ),
+          );
+          return;
+        }
+        Navigator.of(context).maybePop();
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: _selectedIndex,
+          children: [
+            _HomeDashboardTab(
+              onSeeAllVault: () => _openVaultWithStatus(null),
+              onFilterStatus: _openVaultWithStatus,
+              onToggleTheme: _cycleThemeMode,
+              themeIcon: _themeIconFor(ref.watch(themeModeProvider)),
+            ),
+            const VaultScreen(),
+            const SettingsScreen(),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: Icon(
-              notifSettings.enabled
-                  ? Icons.notifications_active_outlined
-                  : Icons.notifications_off_outlined,
-            ),
-            tooltip: 'Expiry Alert Settings',
-            onPressed: _showNotificationSettings,
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(top: BorderSide(color: hairline)),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: authState.isGuest ? 'Sign In / Register' : 'Sign Out',
-            onPressed: () {
-              ref.read(authProvider.notifier).signOut();
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Migration progress indicator
-          if (authState.isMigrating)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.blue.shade50,
-              child: const Row(
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 12),
-                  Text(
-                    'Migrating offline receipts to your cloud account...',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
-                  ),
-                ],
-              ),
-            ),
-
-          // Guest Mode Sync Banner
-          if (authState.isGuest)
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: SafeArea(
+            top: false,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFFDE68A)),
-              ),
               child: Row(
                 children: [
-                  const Icon(Icons.cloud_off_rounded, size: 22, color: Color(0xFFD97706)),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Offline Guest Mode',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
-                        ),
-                        Text(
-                          'Receipts saved on device. Sign in to enable AI scan & cloud sync.',
-                          style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
-                        ),
-                      ],
+                  Expanded(
+                    child: _NavTabButton(
+                      icon: Icons.space_dashboard_outlined,
+                      activeIcon: Icons.space_dashboard_rounded,
+                      label: 'Home',
+                      selected: _selectedIndex == 0,
+                      onTap: () => setState(() => _selectedIndex = 0),
+                    ),
+                  ),
+                  Expanded(
+                    child: _NavTabButton(
+                      icon: Icons.inventory_2_outlined,
+                      activeIcon: Icons.inventory_2_rounded,
+                      label: 'Vault',
+                      selected: _selectedIndex == 1,
+                      onTap: () => setState(() => _selectedIndex = 1),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  FilledButton.tonal(
-                    onPressed: () {
-                      ref.read(authProvider.notifier).signOut();
-                    },
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      backgroundColor: const Color(0xFFD97706),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: const Text('Sign In', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            ),
-
-          // Search & Filter Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search items, stores, or serial numbers...',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: (filter.query != null && filter.query!.isNotEmpty) ||
-                        _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear_rounded),
-                        onPressed: () {
-                          _searchController.clear();
-                          ref.read(warrantyFilterProvider.notifier).updateQuery('');
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: (val) {
-                ref.read(warrantyFilterProvider.notifier).updateQuery(val);
-              },
-            ),
-          ),
-
-          // Horizontal Category Filter Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: Row(
-              children: [
-                _filterChip(
-                  label: 'All Items',
-                  isSelected: filter.selectedCategory == null,
-                  onSelected: () {
-                    ref.read(warrantyFilterProvider.notifier).updateCategory(null);
-                  },
-                ),
-                ...AppConfig.categories.map((cat) {
-                  return Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: _filterChip(
-                      label: cat,
-                      isSelected: filter.selectedCategory == cat,
-                      onSelected: () {
-                        ref.read(warrantyFilterProvider.notifier).updateCategory(cat);
-                      },
-                    ),
-                  );
-                }),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          // Summary Metrics Banner & List Content
-          Expanded(
-            child: warrantiesAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline_rounded, size: 48, color: Colors.redAccent),
-                      const SizedBox(height: 12),
-                      Text(
-                        ErrorMessages.friendly(
-                          err,
-                          fallback: "Couldn't load your warranties right now.",
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () => ref.invalidate(warrantiesStreamProvider),
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              data: (warranties) {
-                if (warranties.isEmpty) {
-                  return _emptyState();
-                }
-
-                // Calculate metrics
-                final activeCount = warranties.where((w) => w.status == 'active').length;
-                final expiringCount = warranties.where((w) => w.status == 'expiring_soon').length;
-                final expiredCount = warranties.where((w) => w.status == 'expired').length;
-
-                return Column(
-                  children: [
-                    // Metrics Row
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _metricCard('Active', activeCount, AppTheme.statusActive),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _metricCard('Expiring Soon', expiringCount, AppTheme.statusExpiringSoon),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _metricCard('Expired', expiredCount, AppTheme.statusExpired),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Warranties Card List
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: () async {
-                          ref.invalidate(warrantiesStreamProvider);
-                          await ref.read(warrantiesStreamProvider.future);
-                        },
-                        child: ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                          itemCount: warranties.length,
-                          itemBuilder: (ctx, index) {
-                            final item = warranties[index];
-                            return _warrantyCard(item);
-                          },
+                  // Center Crimson Pill Scan CTA (SRS 4.1 UI-02)
+                  Material(
+                    color: crimson,
+                    shape: const StadiumBorder(),
+                    child: InkWell(
+                      customBorder: const StadiumBorder(),
+                      onTap: () => ScanFlowHelper.showSourcePicker(context, ref),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add_rounded, color: Colors.white, size: 20),
+                            SizedBox(width: 4),
+                            Text(
+                              'Scan',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.camera_alt_rounded),
-        label: const Text('Scan Receipt'),
-        onPressed: _showImageSourcePicker,
-      ),
-    );
-  }
-
-  Widget _filterChip({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onSelected,
-  }) {
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) => onSelected(),
-      selectedColor: AppTheme.primary.withValues(alpha: 0.15),
-      labelStyle: TextStyle(
-        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-        color: isSelected ? AppTheme.primary : const Color(0xFF475569),
-        fontSize: 13,
-      ),
-    );
-  }
-
-  Widget _metricCard(String label, int count, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-
-      child: Column(
-        children: [
-          Text(
-            count.toString(),
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _warrantyCard(WarrantyModel item) {
-    final statusColor = AppTheme.getStatusColor(item.status);
-    final statusLabel = AppTheme.getStatusLabel(item.status);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => WarrantyDetailScreen(warranty: item),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.itemName,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                        ),
-                        if (item.merchantName != null && item.merchantName!.isNotEmpty)
-                          Text(
-                            item.merchantName!,
-                            style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-                          ),
-                      ],
-                    ),
-                  ),
-                  // Status Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      statusLabel,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: statusColor,
-                      ),
+                    child: _NavTabButton(
+                      icon: Icons.tune_outlined,
+                      activeIcon: Icons.tune_rounded,
+                      label: 'Settings',
+                      selected: _selectedIndex == 2,
+                      onTap: () => setState(() => _selectedIndex = 2),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF94A3B8)),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Expires: ${item.formattedExpirationDate}',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                  ),
-                  const Spacer(),
-                  Text(
-                    item.daysRemaining > 0
-                        ? '${item.daysRemaining}d left'
-                        : item.daysRemaining == 0
-                            ? 'Today'
-                            : '${item.daysRemaining.abs()}d ago',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: statusColor,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _emptyState() {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                shape: BoxShape.circle,
+class _HomeDashboardTab extends ConsumerWidget {
+  final VoidCallback onSeeAllVault;
+  final void Function(String? statusFilter) onFilterStatus;
+  final VoidCallback onToggleTheme;
+  final IconData themeIcon;
+
+  const _HomeDashboardTab({
+    required this.onSeeAllVault,
+    required this.onFilterStatus,
+    required this.onToggleTheme,
+    required this.themeIcon,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+    final warrantiesAsync = ref.watch(warrantiesStreamProvider);
+    final hairline = AppTheme.hairlineOf(context);
+    final subtle = AppTheme.subtleSurfaceOf(context);
+    final muted = AppTheme.mutedTextOf(context);
+    final crimson = AppTheme.crimsonOf(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 20,
+        title: const VarantiWordmark(height: 22),
+        actions: [
+          // Compact Sync / Guest Pill Indicator
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: ShapeDecoration(
+              color: subtle,
+              shape: StadiumBorder(side: BorderSide(color: hairline)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: authState.isGuest
+                        ? AppTheme.statusExpiringSoon
+                        : AppTheme.statusActive,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  authState.isGuest ? 'Guest' : 'Synced',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Circular Theme Quick-Toggle Orb
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Material(
+              color: Theme.of(context).colorScheme.surface,
+              shape: CircleBorder(side: BorderSide(color: hairline)),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onToggleTheme,
+                child: SizedBox(
+                  width: 38,
+                  height: 38,
+                  child: Icon(themeIcon, size: 19),
+                ),
               ),
-              child: const Icon(Icons.receipt_long_rounded, size: 64, color: AppTheme.primary),
             ),
-            const SizedBox(height: 20),
-            const Text(
-              'No Warranties Found',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        color: crimson,
+        onRefresh: () async {
+          ref.invalidate(warrantiesStreamProvider);
+          await ref.read(warrantiesStreamProvider.future);
+        },
+        child: warrantiesAsync.when(
+          loading: () => Center(
+            child: CircularProgressIndicator(color: crimson, strokeWidth: 2.5),
+          ),
+          error: (err, _) => ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const SizedBox(height: 80),
+              Icon(Icons.cloud_off_rounded, size: 44, color: crimson),
+              const SizedBox(height: 12),
+              Text(
+                ErrorMessages.friendly(
+                  err,
+                  fallback: "Couldn't load your warranties right now.",
+                ),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 18),
+              Center(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  onPressed: () => ref.invalidate(warrantiesStreamProvider),
+                  label: const Text('Try Again'),
+                ),
+              ),
+            ],
+          ),
+          data: (warranties) {
+            final expiringSoon = warranties
+                .where((w) => w.status == 'expiring_soon')
+                .toList()
+              ..sort(
+                (a, b) =>
+                    a.warrantyExpirationDate.compareTo(b.warrantyExpirationDate),
+              );
+
+            final recentPreview = warranties.take(5).toList();
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+              children: [
+                if (authState.isMigrating) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: hairline),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: crimson,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'Backing up your saved receipts to the cloud...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                if (authState.isGuest) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: hairline),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: AppTheme.getStatusSoftBg(
+                              'expiring_soon',
+                              Theme.of(context).brightness,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.cloud_upload_outlined,
+                            size: 19,
+                            color: AppTheme.statusExpiringSoon,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Saved on this device',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                'Sign in to enable auto receipt scan and cloud backup.',
+                                style: TextStyle(fontSize: 11, color: muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: () {
+                            ref.read(authProvider.notifier).signOut();
+                          },
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                          ),
+                          child: const Text('Sign In', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                if (warranties.isEmpty)
+                  _MinimalEmptyState(
+                    onScan: () => ScanFlowHelper.showSourcePicker(context, ref),
+                  )
+                else ...[
+                  // Visual Graph 1: Coverage Donut Ring
+                  WarrantyCoverageDonutCard(
+                    warranties: warranties,
+                    onStatusTap: onFilterStatus,
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Visual Graph 2: 6-Month Expirations / Categories
+                  WarrantyTrendsChartCard(warranties: warranties),
+                  const SizedBox(height: 22),
+
+                  // Expiring Soon Spotlight Strip
+                  if (expiringSoon.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        Text(
+                          'EXPIRING SOON',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.4,
+                            color: muted,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: ShapeDecoration(
+                            color: AppTheme.getStatusSoftBg(
+                              'expiring_soon',
+                              Theme.of(context).brightness,
+                            ),
+                            shape: const StadiumBorder(),
+                          ),
+                          child: Text(
+                            '${expiringSoon.length}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.statusExpiringSoon,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 116,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: expiringSoon.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
+                        itemBuilder: (ctx, i) {
+                          final item = expiringSoon[i];
+                          return _ExpiringSpotlightCard(item: item);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                  ],
+
+                  // Upcoming / Recent Warranties Header
+                  Row(
+                    children: [
+                      Text(
+                        'YOUR WARRANTIES',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                          color: muted,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: onSeeAllVault,
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 15),
+                        iconAlignment: IconAlignment.end,
+                        label: const Text('See All', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ...recentPreview.map((item) => WarrantyListCard(item: item)),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ExpiringSpotlightCard extends StatelessWidget {
+  final WarrantyModel item;
+
+  const _ExpiringSpotlightCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final hairline = AppTheme.hairlineOf(context);
+    final muted = AppTheme.mutedTextOf(context);
+    final brightness = Theme.of(context).brightness;
+
+    return SizedBox(
+      width: 210,
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: hairline),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => WarrantyDetailScreen(warranty: item),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 3,
+                      ),
+                      decoration: ShapeDecoration(
+                        color: AppTheme.getStatusSoftBg(
+                          'expiring_soon',
+                          brightness,
+                        ),
+                        shape: const StadiumBorder(),
+                      ),
+                      child: Text(
+                        '${item.daysRemaining}d left',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.statusExpiringSoon,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(Icons.chevron_right_rounded, size: 18, color: muted),
+                  ],
+                ),
+                const Spacer(),
+                Text(
+                  item.itemName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Ends ${item.formattedExpirationDate}',
+                  style: TextStyle(fontSize: 11, color: muted),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tap the button below to snap your first receipt photo. We will automatically track its warranty for you.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.4),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MinimalEmptyState extends StatelessWidget {
+  final VoidCallback onScan;
+
+  const _MinimalEmptyState({required this.onScan});
+
+  @override
+  Widget build(BuildContext context) {
+    final hairline = AppTheme.hairlineOf(context);
+    final muted = AppTheme.mutedTextOf(context);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: hairline),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.subtleSurfaceOf(context),
+              borderRadius: BorderRadius.circular(20),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.camera_alt_rounded),
-              label: const Text('Scan First Receipt'),
-              onPressed: _showImageSourcePicker,
-            ),
-          ],
+            child: const VarantiMark(size: 40),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Your warranty vault is empty',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Scan your first receipt to track coverage dates, see visual expiry graphs, and export claim PDFs anytime.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: muted, height: 1.45),
+          ),
+          const SizedBox(height: 22),
+          FilledButton.icon(
+            icon: const Icon(Icons.photo_camera_outlined, size: 18),
+            label: const Text('Scan First Receipt'),
+            onPressed: onScan,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavTabButton extends StatelessWidget {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _NavTabButton({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final muted = AppTheme.mutedTextOf(context);
+    final subtle = AppTheme.subtleSurfaceOf(context);
+
+    return Material(
+      color: selected ? subtle : Colors.transparent,
+      shape: const StadiumBorder(),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                selected ? activeIcon : icon,
+                size: 20,
+                color: selected ? onSurface : muted,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? onSurface : muted,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

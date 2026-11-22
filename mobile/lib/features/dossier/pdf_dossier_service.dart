@@ -86,7 +86,11 @@ class PdfDossierService {
                       borderRadius: pw.BorderRadius.circular(6),
                     ),
                     child: pw.Text(
-                      warranty.status.toUpperCase(),
+                      warranty.status == 'active'
+                          ? 'ACTIVE'
+                          : warranty.status == 'expiring_soon'
+                              ? 'EXPIRING SOON'
+                              : 'EXPIRED',
                       style: pw.TextStyle(
                         fontWeight: pw.FontWeight.bold,
                         fontSize: 12,
@@ -143,39 +147,53 @@ class PdfDossierService {
 
               // Images display
               pw.Expanded(
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    if (receiptImage != null)
-                      pw.Expanded(
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
-                            pw.Text('Receipt Image:', style: const pw.TextStyle(fontSize: 10)),
-                            pw.SizedBox(height: 4),
-                            pw.Expanded(
-                              child: pw.Image(receiptImage, fit: pw.BoxFit.contain),
-                            ),
-                          ],
+                child: (receiptImage == null && serialImage == null)
+                    ? pw.Container(
+                        width: double.infinity,
+                        alignment: pw.Alignment.center,
+                        padding: const pw.EdgeInsets.all(20),
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(color: PdfColors.grey300),
+                          borderRadius: pw.BorderRadius.circular(8),
                         ),
-                      ),
-                    if (receiptImage != null && serialImage != null)
-                      pw.SizedBox(width: 16),
-                    if (serialImage != null)
-                      pw.Expanded(
-                        child: pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.start,
-                          children: [
-                            pw.Text('Serial Label Image:', style: const pw.TextStyle(fontSize: 10)),
-                            pw.SizedBox(height: 4),
-                            pw.Expanded(
-                              child: pw.Image(serialImage, fit: pw.BoxFit.contain),
-                            ),
-                          ],
+                        child: pw.Text(
+                          'Receipt photo could not be attached offline. Please reconnect and re-export if needed.',
+                          style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
                         ),
+                      )
+                    : pw.Row(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          if (receiptImage != null)
+                            pw.Expanded(
+                              child: pw.Column(
+                                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                                children: [
+                                  pw.Text('Receipt Image:', style: const pw.TextStyle(fontSize: 10)),
+                                  pw.SizedBox(height: 4),
+                                  pw.Expanded(
+                                    child: pw.Image(receiptImage, fit: pw.BoxFit.contain),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (receiptImage != null && serialImage != null)
+                            pw.SizedBox(width: 16),
+                          if (serialImage != null)
+                            pw.Expanded(
+                              child: pw.Column(
+                                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                                children: [
+                                  pw.Text('Serial Label Image:', style: const pw.TextStyle(fontSize: 10)),
+                                  pw.SizedBox(height: 4),
+                                  pw.Expanded(
+                                    child: pw.Image(serialImage, fit: pw.BoxFit.contain),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
               ),
             ],
           );

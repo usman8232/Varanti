@@ -113,6 +113,24 @@ class ErrorMessages {
     if (lower.contains('invalid email') || lower.contains('validate email')) {
       return 'Please enter a valid email address.';
     }
+    if (lower.contains('unsupported provider') ||
+        lower.contains('provider is not enabled') ||
+        lower.contains('not enabled')) {
+      return "This sign-in option isn't turned on yet. Try email or guest mode.";
+    }
+    if (lower.contains('sms') ||
+        lower.contains('phone provider') ||
+        lower.contains('phone logins are disabled')) {
+      return "Phone sign-in isn't enabled yet. Try email or guest mode.";
+    }
+    if (lower.contains('otp') ||
+        lower.contains('token has expired') ||
+        lower.contains('invalid token')) {
+      return 'That verification code is invalid or expired. Please request a new code.';
+    }
+    if (lower.contains('invalid phone') || lower.contains('phone number')) {
+      return 'Please enter a valid phone number including country code (e.g. +92...).';
+    }
     if (lower.contains('rate limit') || lower.contains('too many')) {
       return 'Too many attempts. Please wait a moment and try again.';
     }

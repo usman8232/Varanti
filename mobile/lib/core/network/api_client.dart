@@ -4,6 +4,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:path/path.dart' as p;
 import '../config/app_config.dart';
 import '../utils/error_messages.dart';
+import '../../data/models/profile_model.dart';
 import '../../data/models/warranty_model.dart';
 
 class ApiClient {
@@ -206,6 +207,83 @@ class ApiClient {
       throw ApiException.fromStatus(
         response.statusCode,
         fallback: "Couldn't delete this warranty. Please try again.",
+      );
+    }
+  }
+
+  Future<bool> checkHealth() async {
+    try {
+      final uri = Uri.parse('${AppConfig.apiBaseUrl}/health');
+      final response = await _client.get(uri).timeout(const Duration(seconds: 5));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<UserProfile> getProfile() async {
+    final uri = Uri.parse('${AppConfig.apiBaseUrl}/v1/profile');
+    final response = await _client.get(uri, headers: _headers).timeout(_timeout);
+
+    if (response.statusCode == 200) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    } else {
+      throw ApiException.fromStatus(
+        response.statusCode,
+        fallback: "Couldn't load your profile right now.",
+      );
+    }
+  }
+
+  Future<UserProfile> updateProfile({
+    String? fullName,
+    String? phone,
+    String? avatarUrl,
+  }) async {
+    final uri = Uri.parse('${AppConfig.apiBaseUrl}/v1/profile');
+    final payload = <String, dynamic>{};
+    if (fullName != null) payload['full_name'] = fullName;
+    if (phone != null) payload['phone'] = phone;
+    if (avatarUrl != null) payload['avatar_url'] = avatarUrl;
+
+    final response = await _client
+        .patch(uri, headers: _headers, body: jsonEncode(payload))
+        .timeout(_timeout);
+
+    if (response.statusCode == 200) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    } else {
+      throw ApiException.fromStatus(
+        response.statusCode,
+        fallback: "Couldn't update your profile right now.",
+      );
+    }
+  }
+
+  Future<UserProfile> uploadAvatar(String filePath) async {
+    final uri = Uri.parse('${AppConfig.apiBaseUrl}/v1/profile/avatar');
+    final request = http.MultipartRequest('POST', uri);
+
+    if (accessToken != null) {
+      request.headers['Authorization'] = 'Bearer $accessToken';
+    }
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'avatar',
+        filePath,
+        contentType: _imageMediaType(filePath),
+      ),
+    );
+
+    final streamedResponse = await request.send().timeout(_ocrTimeout);
+    final response = await http.Response.fromStream(streamedResponse).timeout(_ocrTimeout);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    } else {
+      throw ApiException.fromStatus(
+        response.statusCode,
+        fallback: "Couldn't upload your profile photo. Please try again.",
       );
     }
   }

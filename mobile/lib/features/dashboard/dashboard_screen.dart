@@ -6,7 +6,9 @@ import '../../core/utils/error_messages.dart';
 import '../../core/widgets/varanti_brand.dart';
 import '../../data/models/warranty_model.dart';
 import '../notifications/notification_service.dart';
+import '../profile/profile_avatar_button.dart';
 import '../settings/settings_screen.dart';
+import '../timeline/timeline_screen.dart';
 import '../vault/vault_screen.dart';
 import '../warranties/warranty_detail_screen.dart';
 import '../warranties/widgets/warranty_card.dart';
@@ -49,24 +51,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     setState(() => _selectedIndex = 1);
   }
 
-  void _cycleThemeMode() {
-    final current = ref.read(themeModeProvider);
-    final next = switch (current) {
-      ThemeMode.system => ThemeMode.dark,
-      ThemeMode.dark => ThemeMode.light,
-      ThemeMode.light => ThemeMode.system,
-    };
-    ref.read(themeModeProvider.notifier).setThemeMode(next);
-  }
-
-  IconData _themeIconFor(ThemeMode mode) {
-    return switch (mode) {
-      ThemeMode.light => Icons.light_mode_outlined,
-      ThemeMode.dark => Icons.dark_mode_outlined,
-      ThemeMode.system => Icons.brightness_auto_outlined,
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
     final notifSettings = ref.watch(notificationSettingsProvider);
@@ -78,7 +62,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       next.whenData((list) => _syncNotifications(list, notifSettings));
     });
 
-    // Also sync if already loaded on mount
     warrantiesAsync.whenData((list) => _syncNotifications(list, notifSettings));
 
     return PopScope(
@@ -110,10 +93,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             _HomeDashboardTab(
               onSeeAllVault: () => _openVaultWithStatus(null),
               onFilterStatus: _openVaultWithStatus,
-              onToggleTheme: _cycleThemeMode,
-              themeIcon: _themeIconFor(ref.watch(themeModeProvider)),
             ),
             const VaultScreen(),
+            TimelineScreen(
+              onOpenSettings: () => setState(() => _selectedIndex = 3),
+            ),
             const SettingsScreen(),
           ],
         ),
@@ -125,7 +109,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           child: SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
               child: Row(
                 children: [
                   Expanded(
@@ -146,42 +130,54 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       onTap: () => setState(() => _selectedIndex = 1),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  // Center Crimson Pill Scan CTA (SRS 4.1 UI-02)
-                  Material(
-                    color: crimson,
-                    shape: const StadiumBorder(),
-                    child: InkWell(
-                      customBorder: const StadiumBorder(),
-                      onTap: () => ScanFlowHelper.showSourcePicker(context, ref),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_rounded, color: Colors.white, size: 20),
-                            SizedBox(width: 4),
-                            Text(
-                              'Scan',
-                              style: TextStyle(
+                  // Symmetrical Center Crimson Scan Orb (SRS 4.1 UI-02)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Tooltip(
+                      message: 'Scan Receipt',
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: crimson.withValues(alpha: 0.14),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Material(
+                          color: crimson,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () =>
+                                ScanFlowHelper.showSourcePicker(context, ref),
+                            child: const SizedBox(
+                              width: 46,
+                              height: 46,
+                              child: Icon(
+                                Icons.document_scanner_rounded,
                                 color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                                size: 22,
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _NavTabButton(
+                      icon: Icons.calendar_month_outlined,
+                      activeIcon: Icons.calendar_month_rounded,
+                      label: 'Timeline',
+                      selected: _selectedIndex == 2,
+                      onTap: () => setState(() => _selectedIndex = 2),
+                    ),
+                  ),
                   Expanded(
                     child: _NavTabButton(
                       icon: Icons.tune_outlined,
                       activeIcon: Icons.tune_rounded,
                       label: 'Settings',
-                      selected: _selectedIndex == 2,
-                      onTap: () => setState(() => _selectedIndex = 2),
+                      selected: _selectedIndex == 3,
+                      onTap: () => setState(() => _selectedIndex = 3),
                     ),
                   ),
                 ],
@@ -197,14 +193,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 class _HomeDashboardTab extends ConsumerWidget {
   final VoidCallback onSeeAllVault;
   final void Function(String? statusFilter) onFilterStatus;
-  final VoidCallback onToggleTheme;
-  final IconData themeIcon;
 
   const _HomeDashboardTab({
     required this.onSeeAllVault,
     required this.onFilterStatus,
-    required this.onToggleTheme,
-    required this.themeIcon,
   });
 
   @override
@@ -212,7 +204,6 @@ class _HomeDashboardTab extends ConsumerWidget {
     final authState = ref.watch(authProvider);
     final warrantiesAsync = ref.watch(warrantiesStreamProvider);
     final hairline = AppTheme.hairlineOf(context);
-    final subtle = AppTheme.subtleSurfaceOf(context);
     final muted = AppTheme.mutedTextOf(context);
     final crimson = AppTheme.crimsonOf(context);
 
@@ -220,58 +211,7 @@ class _HomeDashboardTab extends ConsumerWidget {
       appBar: AppBar(
         titleSpacing: 20,
         title: const VarantiWordmark(height: 22),
-        actions: [
-          // Compact Sync / Guest Pill Indicator
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: ShapeDecoration(
-              color: subtle,
-              shape: StadiumBorder(side: BorderSide(color: hairline)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: authState.isGuest
-                        ? AppTheme.statusExpiringSoon
-                        : AppTheme.statusActive,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  authState.isGuest ? 'Guest' : 'Synced',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Circular Theme Quick-Toggle Orb
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Material(
-              color: Theme.of(context).colorScheme.surface,
-              shape: CircleBorder(side: BorderSide(color: hairline)),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onToggleTheme,
-                child: SizedBox(
-                  width: 38,
-                  height: 38,
-                  child: Icon(themeIcon, size: 19),
-                ),
-              ),
-            ),
-          ),
-        ],
+        actions: const [ProfileAvatarButton()],
       ),
       body: RefreshIndicator(
         color: crimson,
@@ -623,7 +563,7 @@ class _MinimalEmptyState extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: hairline),
       ),
       child: Column(

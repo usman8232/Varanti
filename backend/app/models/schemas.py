@@ -130,6 +130,21 @@ class DiscardUploadsRequest(BaseModel):
     serial_path: str | None = None
 
 
+class ProfileOut(BaseModel):
+    id: str
+    email: str = ""
+    full_name: str | None = None
+    phone: str | None = None
+    avatar_url: str | None = None
+    avatar_path: str | None = None
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = None
+    phone: str | None = None
+    avatar_url: str | None = None
+
+
 def expiration_from(purchase: date, months: int) -> date:
     return purchase + relativedelta(months=months)
 

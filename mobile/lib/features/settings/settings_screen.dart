@@ -10,7 +10,9 @@ import '../../core/providers/app_providers.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_messages.dart';
 import '../../core/widgets/varanti_brand.dart';
+import '../dossier/pdf_dossier_service.dart';
 import '../notifications/notification_service.dart';
+import '../profile/profile_avatar_button.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -20,15 +22,73 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  bool _isExporting = false;
+  bool _isExportingJson = false;
+  bool _isExportingPdf = false;
 
   String _formatTime(BuildContext context, int hour, int minute) {
     return TimeOfDay(hour: hour, minute: minute).format(context);
   }
 
+  Future<void> _savePortfolioPdf() async {
+    if (_isExportingPdf) return;
+    setState(() => _isExportingPdf = true);
+
+    try {
+      final repo = ref.read(warrantyRepositoryProvider);
+      final warranties = await repo.getWarranties();
+      if (warranties.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No warranties saved to export yet.')),
+          );
+        }
+        return;
+      }
+
+      final profile = ref.read(userProfileProvider).asData?.value;
+      final authState = ref.read(authProvider);
+      final saved = await PdfDossierService.savePortfolioPdf(
+        warranties: warranties,
+        userName: profile?.fullName,
+        userEmail: authState.user?.email ?? profile?.email,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved PDF to ${saved.folderLabel}/${saved.filename}'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Share',
+              onPressed: () => PdfDossierService.shareSavedPdf(
+                saved,
+                subject: 'Varanti Warranty Portfolio Report',
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ErrorMessages.friendly(
+                e,
+                fallback: "Couldn't save the portfolio PDF right now.",
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
   Future<void> _exportAllJson() async {
-    if (_isExporting) return;
-    setState(() => _isExporting = true);
+    if (_isExportingJson) return;
+    setState(() => _isExportingJson = true);
 
     try {
       final repo = ref.read(warrantyRepositoryProvider);
@@ -94,7 +154,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isExporting = false);
+      if (mounted) setState(() => _isExportingJson = false);
     }
   }
 
@@ -148,6 +208,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       appBar: AppBar(
         titleSpacing: 20,
         title: const Text('Settings'),
+        actions: const [ProfileAvatarButton()],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
@@ -157,7 +218,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: hairline),
             ),
             child: Row(
@@ -240,7 +301,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: hairline),
             ),
             child: Column(
@@ -314,7 +375,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: hairline),
             ),
             child: Column(
@@ -456,7 +517,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(color: hairline),
             ),
             child: Column(
@@ -468,25 +529,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Download all your saved warranty records as a clean JSON file anytime with zero restrictions.',
+                  'Save a clean A4 PDF report of all tracked warranties directly to your device, or share a JSON backup anytime.',
                   style: TextStyle(fontSize: 12, color: muted, height: 1.4),
                 ),
                 const SizedBox(height: 14),
-                ElevatedButton.icon(
-                  icon: _isExporting
+                FilledButton.icon(
+                  icon: _isExportingPdf
+                      ? const SizedBox(
+                          width: 17,
+                          height: 17,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                  label: Text(
+                    _isExportingPdf ? 'Saving PDF Report...' : 'Save Portfolio as PDF',
+                  ),
+                  onPressed: _isExportingPdf ? null : _savePortfolioPdf,
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  icon: _isExportingJson
                       ? SizedBox(
                           width: 17,
                           height: 17,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Theme.of(context).colorScheme.onPrimary,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         )
-                      : const Icon(Icons.download_rounded, size: 18),
+                      : const Icon(Icons.code_rounded, size: 18),
                   label: Text(
-                    _isExporting ? 'Preparing Backup...' : 'Export Backup (JSON)',
+                    _isExportingJson ? 'Preparing Backup...' : 'Export Backup (JSON)',
                   ),
-                  onPressed: _isExporting ? null : _exportAllJson,
+                  onPressed: _isExportingJson ? null : _exportAllJson,
                 ),
               ],
             ),

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     supabase_receipts_bucket: str = "receipts"
     supabase_serials_bucket: str = "serial-labels"
+    supabase_avatars_bucket: str = "avatars"
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"

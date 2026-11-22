@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/error_messages.dart';
 import '../../core/widgets/varanti_brand.dart';
 import '../dashboard/scan_flow.dart';
+import '../profile/profile_avatar_button.dart';
 import '../warranties/widgets/warranty_card.dart';
 
 class VaultScreen extends ConsumerStatefulWidget {
@@ -153,7 +154,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.only(right: 10),
             child: Material(
               color: Theme.of(context).colorScheme.surface,
               shape: StadiumBorder(side: BorderSide(color: hairline)),
@@ -180,6 +181,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
               ),
             ),
           ),
+          const ProfileAvatarButton(),
         ],
       ),
       body: Column(

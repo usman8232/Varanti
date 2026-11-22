@@ -41,13 +41,62 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
     }
   }
 
-  Future<void> _exportPdf(String? userEmail) async {
+  Future<void> _savePdfToDevice() async {
     if (_isExportingPdf) return;
     setState(() => _isExportingPdf = true);
     try {
+      final profile = ref.read(userProfileProvider).asData?.value;
+      final authState = ref.read(authProvider);
+      final saved = await PdfDossierService.saveDossierPdf(
+        warranty: _warranty,
+        userName: profile?.fullName,
+        userEmail: authState.user?.email ?? profile?.email,
+        userPhone: profile?.phone,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved PDF to ${saved.folderLabel}/${saved.filename}'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Share',
+              onPressed: () => PdfDossierService.shareSavedPdf(
+                saved,
+                subject: 'Warranty Dossier - ${_warranty.itemName}',
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              ErrorMessages.friendly(
+                e,
+                fallback: "Couldn't save the PDF right now. Please try again.",
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
+  Future<void> _sharePdf() async {
+    if (_isExportingPdf) return;
+    setState(() => _isExportingPdf = true);
+    try {
+      final profile = ref.read(userProfileProvider).asData?.value;
+      final authState = ref.read(authProvider);
       await PdfDossierService.generateAndShareDossier(
         warranty: _warranty,
-        userEmail: userEmail,
+        userName: profile?.fullName,
+        userEmail: authState.user?.email ?? profile?.email,
+        userPhone: profile?.phone,
       );
     } catch (e) {
       if (mounted) {
@@ -56,7 +105,7 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
             content: Text(
               ErrorMessages.friendly(
                 e,
-                fallback: "Couldn't create the PDF right now. Please try again.",
+                fallback: "Couldn't share the PDF right now. Please try again.",
               ),
             ),
           ),
@@ -185,7 +234,6 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authProvider);
     final warranty = _warranty;
     final statusColor = AppTheme.getStatusColor(warranty.status);
     final hairline = AppTheme.hairlineOf(context);
@@ -217,10 +265,8 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.ios_share_rounded),
-            tooltip: 'Export Claim PDF',
-            onPressed: _isExportingPdf
-                ? null
-                : () => _exportPdf(authState.user?.email),
+            tooltip: 'Share Claim PDF',
+            onPressed: _isExportingPdf ? null : _sharePdf,
           ),
           IconButton(
             icon: Icon(Icons.delete_outline_rounded, color: crimson),
@@ -239,7 +285,7 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: hairline),
               ),
               child: Column(
@@ -320,7 +366,7 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: hairline),
               ),
               child: Column(
@@ -466,33 +512,47 @@ class _WarrantyDetailScreenState extends ConsumerState<WarrantyDetailScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Primary Crimson Pill CTA: Export Official Claim PDF (SRS FR-EXP-01..03)
-            FilledButton.icon(
-              icon: _isExportingPdf
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.picture_as_pdf_rounded, size: 19),
-              label: Text(
-                _isExportingPdf
-                    ? 'Preparing Claim PDF...'
-                    : 'Export Official Claim PDF',
-              ),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              onPressed: _isExportingPdf
-                  ? null
-                  : () => _exportPdf(authState.user?.email),
+            // Primary Save PDF & Share PDF Actions (SRS FR-EXP-01..03)
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    icon: _isExportingPdf
+                        ? const SizedBox(
+                            width: 17,
+                            height: 17,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.picture_as_pdf_rounded, size: 19),
+                    label: Text(
+                      _isExportingPdf ? 'Saving PDF...' : 'Save Claim PDF',
+                    ),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    onPressed: _isExportingPdf ? null : _savePdfToDevice,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    label: const Text('Share'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                    ),
+                    onPressed: _isExportingPdf ? null : _sharePdf,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
-              'Clean A4 PDF with receipt proof and zero watermarks.',
+              'Saves a clean A4 PDF with receipt proof and zero watermarks.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: muted),
             ),

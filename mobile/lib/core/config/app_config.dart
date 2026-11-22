@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 class AppConfig {
   static const String appName = 'Varanti';
+  static const String oauthRedirectUrl = 'com.varanti.varanti://login-callback';
 
   // Supabase Project Credentials
   static const String supabaseUrl = String.fromEnvironment(

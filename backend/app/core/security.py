@@ -13,6 +13,7 @@ _bearer = HTTPBearer(auto_error=False)
 class CurrentUser(BaseModel):
     id: str
     email: str | None = None
+    phone: str | None = None
     access_token: str
 
 
@@ -54,4 +55,12 @@ async def get_current_user(
     email = payload.get("email")
     if isinstance(email, list):
         email = email[0] if email else None
-    return CurrentUser(id=str(user_id), email=email, access_token=creds.credentials)
+    phone = payload.get("phone")
+    if isinstance(phone, list):
+        phone = phone[0] if phone else None
+    return CurrentUser(
+        id=str(user_id),
+        email=email,
+        phone=phone,
+        access_token=creds.credentials,
+    )

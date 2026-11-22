@@ -1,10 +1,13 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/app_config.dart';
 import '../network/api_client.dart';
 import '../utils/error_messages.dart';
+import '../../data/models/profile_model.dart';
 import '../../data/models/warranty_model.dart';
 import '../../data/repositories/warranty_repository.dart';
 import '../../features/notifications/notification_service.dart';
@@ -140,19 +143,94 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   void _init() {
-    final subscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    final subscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
       final session = data.session;
       if (session != null) {
+        final wasSignedOut = !state.isAuthenticated;
+        try {
+          await _secureStorage.delete(key: _guestStorageKey);
+        } catch (_) {}
         state = state.copyWith(
           user: session.user,
           accessToken: session.accessToken,
           isGuest: false,
+          isLoading: false,
         );
+        if (wasSignedOut && data.event == AuthChangeEvent.signedIn) {
+          await autoMigrateGuestWarranties();
+        }
       } else if (!state.isGuest) {
         state = const AuthState(isGuest: false);
       }
     });
     ref.onDispose(subscription.cancel);
+  }
+
+  Future<void> signInWithOAuthProvider(OAuthProvider provider) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final launched = await Supabase.instance.client.auth.signInWithOAuth(
+        provider,
+        redirectTo: kIsWeb ? null : AppConfig.oauthRedirectUrl,
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        throw const ApiException("Couldn't open the sign-in page. Please try again.");
+      }
+      state = state.copyWith(isLoading: false);
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: ErrorMessages.friendly(e),
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> sendPhoneOtp(String phone) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final normalized = phone.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+      await Supabase.instance.client.auth.signInWithOtp(phone: normalized);
+      state = state.copyWith(isLoading: false);
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: ErrorMessages.friendly(e),
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> verifyPhoneOtp(String phone, String code) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final normalized = phone.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+      final res = await Supabase.instance.client.auth.verifyOTP(
+        type: OtpType.sms,
+        phone: normalized,
+        token: code.trim(),
+      );
+      if (res.session == null) {
+        throw const ApiException('Could not verify that code. Please try again.');
+      }
+      try {
+        await _secureStorage.delete(key: _guestStorageKey);
+      } catch (_) {}
+      state = state.copyWith(
+        user: res.user,
+        accessToken: res.session?.accessToken,
+        isGuest: false,
+        isLoading: false,
+      );
+      await autoMigrateGuestWarranties();
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: ErrorMessages.friendly(e),
+      );
+      rethrow;
+    }
   }
 
   Future<void> enterGuestMode() async {
@@ -255,6 +333,73 @@ class AuthNotifier extends Notifier<AuthState> {
 final authProvider = NotifierProvider<AuthNotifier, AuthState>(() {
   return AuthNotifier();
 });
+
+// --- USER PROFILE PROVIDER (synced across Supabase Auth, FastAPI & local guest prefs) ---
+
+const String _localAvatarPathKey = 'varanti_local_avatar_path';
+const String _localDisplayNameKey = 'varanti_local_display_name';
+
+final userProfileProvider = FutureProvider<UserProfile>((ref) async {
+  final authState = ref.watch(authProvider);
+  final apiClient = ref.watch(apiClientProvider);
+
+  String? localAvatar;
+  String? localName;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    localAvatar = prefs.getString(_localAvatarPathKey);
+    localName = prefs.getString(_localDisplayNameKey);
+  } catch (_) {}
+
+  if (authState.isGuest || authState.user == null) {
+    return UserProfile(
+      id: 'guest',
+      fullName: (localName != null && localName.isNotEmpty) ? localName : 'Guest',
+      avatarUrl: localAvatar,
+    );
+  }
+
+  final user = authState.user!;
+  final meta = user.userMetadata ?? const <String, dynamic>{};
+  final metaName = (meta['full_name'] ?? meta['name'])?.toString();
+  final metaAvatar = (meta['avatar_url'] ?? meta['picture'])?.toString();
+  final baseProfile = UserProfile(
+    id: user.id,
+    email: user.email ?? '',
+    fullName: metaName ?? localName,
+    phone: user.phone ?? meta['phone']?.toString(),
+    avatarUrl: metaAvatar ?? localAvatar,
+  );
+
+  if (apiClient != null) {
+    try {
+      final remote = await apiClient.getProfile();
+      return UserProfile(
+        id: remote.id.isNotEmpty ? remote.id : baseProfile.id,
+        email: remote.email.isNotEmpty ? remote.email : baseProfile.email,
+        fullName: remote.fullName ?? baseProfile.fullName,
+        phone: remote.phone ?? baseProfile.phone,
+        avatarUrl: remote.avatarUrl ?? baseProfile.avatarUrl,
+        avatarPath: remote.avatarPath,
+      );
+    } catch (_) {
+      // Fall back cleanly to Supabase Auth session metadata if backend is offline
+    }
+  }
+  return baseProfile;
+});
+
+Future<void> saveLocalProfileCache({String? displayName, String? avatarPath}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    if (displayName != null) {
+      await prefs.setString(_localDisplayNameKey, displayName.trim());
+    }
+    if (avatarPath != null) {
+      await prefs.setString(_localAvatarPathKey, avatarPath);
+    }
+  } catch (_) {}
+}
 
 // --- API & REPOSITORY PROVIDERS ---
 

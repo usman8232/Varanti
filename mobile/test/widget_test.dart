@@ -140,6 +140,38 @@ void main() {
         'warranty-dossier-item.pdf',
       );
     });
+
+    test('Builds valid unwatermarked PDF bytes for single dossier and full portfolio', () async {
+      final sample = WarrantyModel(
+        id: 'w-pdf-1',
+        itemName: 'MacBook Air M4',
+        merchantName: 'Apple Store',
+        category: 'Computing',
+        purchaseDate: DateTime(2026, 2, 1),
+        warrantyDurationMonths: 12,
+        warrantyExpirationDate: DateTime(2027, 2, 1),
+        serialNumber: 'C02TEST123',
+        pricePaid: 1299.00,
+        currency: 'USD',
+        receiptImageUrl: '',
+      );
+
+      final singleBytes = await PdfDossierService.buildDossierPdfBytes(
+        warranty: sample,
+        userName: 'Usman Waseem',
+        userEmail: 'usman@example.com',
+      );
+      expect(singleBytes.length, greaterThan(500));
+      expect(String.fromCharCodes(singleBytes.take(5)), '%PDF-');
+
+      final portfolioBytes = await PdfDossierService.buildPortfolioPdfBytes(
+        warranties: [sample],
+        userName: 'Usman Waseem',
+        userEmail: 'usman@example.com',
+      );
+      expect(portfolioBytes.length, greaterThan(500));
+      expect(String.fromCharCodes(portfolioBytes.take(5)), '%PDF-');
+    });
   });
 
   group('Warranty Update & Notification Tests', () {

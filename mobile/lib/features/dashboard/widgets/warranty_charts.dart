@@ -42,7 +42,7 @@ class WarrantyCoverageDonutCard extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: hairline),
       ),
       child: Column(
@@ -346,7 +346,7 @@ class _WarrantyTrendsChartCardState extends State<WarrantyTrendsChartCard> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: hairline),
       ),
       child: Column(
